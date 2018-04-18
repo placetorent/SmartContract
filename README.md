@@ -5,4 +5,4 @@
 **Token name** - PTR 
 **Symbol** - PTR  
 **Decimals** - 14  
-**Token amount to issue** - 400 000 000 
+**Token amount to issue** - 100 000 000 

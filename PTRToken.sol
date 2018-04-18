@@ -10,7 +10,7 @@ contract PTRToken is MintableToken, BurnableToken {
     uint32 public constant decimals = 14;
 
     function PTRToken() public {
-        totalSupply = 400000000E14;
+        totalSupply = 100000000E14;
         balances[owner] = totalSupply; // Add all tokens to issuer balance (crowdsale in this case)
     }
 

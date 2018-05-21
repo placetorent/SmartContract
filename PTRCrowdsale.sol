@@ -1,17 +1,407 @@
-pragma solidity ^0.4.18;
+pragma solidity ^0.4.23;
 
-import "./OpenZeppelin/Ownable.sol";
-import "./PTRToken.sol";
 
 /*
- * ICO Start time - 1512464400 - March 5, 2018 9:00:00 AM
- * Default ICO End time - 1519862399 - May 28, 2018 11:59:59 PM
+ * Place to Rent Pre ICO and ICO Contract for Crowdsale
+ *
 */
-contract PTRCrowdsale is Ownable {
+
+
+contract ERC20Basic {
+    uint256 public totalSupply;
+    function balanceOf(address who) public view returns (uint256);
+    function transfer(address to, uint256 value) public returns (bool);
+    event Transfer(address indexed from, address indexed to, uint256 value);
+}
+
+contract ERC20 is ERC20Basic {
+    function allowance(address owner, address spender) public view returns (uint256);
+    function transferFrom(address from, address to, uint256 value) public returns (bool);
+    function approve(address spender, uint256 value) public returns (bool);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
+library SafeMath {
+  function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0) {
+      return 0;
+    }
+    uint256 c = a * b;
+    assert(c / a == b);
+    return c;
+  }
+
+  function div(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
+  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  function add(uint256 a, uint256 b) internal pure returns (uint256) {
+    uint256 c = a + b;
+    assert(c >= a);
+    return c;
+  }
+}
+
+contract BasicToken is ERC20Basic {
+    using SafeMath for uint256;
+
+    mapping(address => uint256) balances;
+
+    /**
+    * @dev transfer token for a specified address
+    * @param _to The address to transfer to.
+    * @param _value The amount to be transferred.
+    */
+    function transfer(address _to, uint256 _value) public returns (bool) {
+        require(_to != address(0));
+        require(_value <= balances[msg.sender]);
+
+        // SafeMath.sub will throw if there is not enough balance.
+        balances[msg.sender] = balances[msg.sender].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        emit Transfer(msg.sender, _to, _value);
+        return true;
+    }
+
+    /**
+    * @dev Gets the balance of the specified address.
+    * @param _owner The address to query the the balance of.
+    * @return An uint256 representing the amount owned by the passed address.
+    */
+    function balanceOf(address _owner) public view returns (uint256 balance) {
+        return balances[_owner];
+    }
+
+}
+
+contract StandardToken is ERC20, BasicToken {
+
+    mapping (address => mapping (address => uint256)) internal allowed;
+
+
+    /**
+     * @dev Transfer tokens from one address to another
+     * @param _from address The address which you want to send tokens from
+     * @param _to address The address which you want to transfer to
+     * @param _value uint256 the amount of tokens to be transferred
+     */
+    function transferFrom(address _from, address _to, uint256 _value) public returns (bool) {
+        require(_to != address(0));
+        require(_value <= balances[_from]);
+        require(_value <= allowed[_from][msg.sender]);
+
+        balances[_from] = balances[_from].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_value);
+        emit Transfer(_from, _to, _value);
+        return true;
+    }
+
+    /**
+     * @dev Approve the passed address to spend the specified amount of tokens on behalf of msg.sender.
+     *
+     * Beware that changing an allowance with this method brings the risk that someone may use both the old
+     * and the new allowance by unfortunate transaction ordering. One possible solution to mitigate this
+     * race condition is to first reduce the spender's allowance to 0 and set the desired value afterwards:
+     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+     * @param _spender The address which will spend the funds.
+     * @param _value The amount of tokens to be spent.
+     */
+    function approve(address _spender, uint256 _value) public returns (bool) {
+        allowed[msg.sender][_spender] = _value;
+        emit Approval(msg.sender, _spender, _value);
+        return true;
+    }
+
+    /**
+     * @dev Function to check the amount of tokens that an owner allowed to a spender.
+     * @param _owner address The address which owns the funds.
+     * @param _spender address The address which will spend the funds.
+     * @return A uint256 specifying the amount of tokens still available for the spender.
+     */
+    function allowance(address _owner, address _spender) public view returns (uint256) {
+        return allowed[_owner][_spender];
+    }
+
+    /**
+     * approve should be called when allowed[_spender] == 0. To increment
+     * allowed value is better to use this function to avoid 2 calls (and wait until
+     * the first transaction is mined)
+     * From MonolithDAO Token.sol
+     */
+    function increaseApproval(address _spender, uint _addedValue) public returns (bool) {
+        allowed[msg.sender][_spender] = allowed[msg.sender][_spender].add(_addedValue);
+        emit Approval(msg.sender, _spender, allowed[msg.sender][_spender]);
+        return true;
+    }
+
+    function decreaseApproval(address _spender, uint _subtractedValue) public returns (bool) {
+        uint oldValue = allowed[msg.sender][_spender];
+        if (_subtractedValue > oldValue) {
+            allowed[msg.sender][_spender] = 0;
+        } else {
+            allowed[msg.sender][_spender] = oldValue.sub(_subtractedValue);
+        }
+        emit Approval(msg.sender, _spender, allowed[msg.sender][_spender]);
+        return true;
+    }
+
+}
+
+contract BurnableToken is StandardToken {
+
+    event Burn(address indexed burner, uint256 value);
+
+    /**
+     * @dev Burns a specific amount of tokens.
+     * @param _value The amount of token to be burned.
+     */
+    function burn(uint256 _value) public {
+        require(_value > 0);
+        require(_value <= balances[msg.sender]);
+        // no need to require value <= totalSupply, since that would imply the
+        // sender's balance is greater than the totalSupply, which *should* be an assertion failure
+
+        address burner = msg.sender;
+        balances[burner] = balances[burner].sub(_value);
+        totalSupply = totalSupply.sub(_value);
+        emit Burn(burner, _value);
+    }
+}
+contract Ownable {
+    address public owner;
+
+
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+
+    /**
+     * @dev The Ownable constructor sets the original `owner` of the contract to the sender
+     * account.
+     */
+    constructor() public {
+        owner = msg.sender;
+    }
+
+
+    /**
+     * @dev Throws if called by any account other than the owner.
+     */
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+
+
+    /**
+     * @dev Allows the current owner to transfer control of the contract to a newOwner.
+     * @param newOwner The address to transfer ownership to.
+     */
+    function transferOwnership(address newOwner) public onlyOwner {
+        require(newOwner != address(0));
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+}
+contract MintableToken is StandardToken, Ownable {
+    event Mint(address indexed to, uint256 amount);
+    event MintFinished();
+
+    bool public mintingFinished = false;
+
+
+    modifier canMint() {
+        require(!mintingFinished);
+        _;
+    }
+
+    /**
+     * @dev Function to mint tokens
+     * @param _to The address that will receive the minted tokens.
+     * @param _amount The amount of tokens to mint.
+     * @return A boolean that indicates if the operation was successful.
+     */
+    function mint(address _to, uint256 _amount) onlyOwner canMint public returns (bool) {
+        totalSupply = totalSupply.add(_amount);
+        balances[_to] = balances[_to].add(_amount);
+        emit Mint(_to, _amount);
+        emit Transfer(address(0), _to, _amount);
+        return true;
+    }
+
+    /**
+     * @dev Function to stop minting new tokens.
+     * @return True if the operation was successful.
+     */
+    function finishMinting() onlyOwner canMint public returns (bool) {
+        mintingFinished = true;
+        emit MintFinished();
+        return true;
+    }
+}
+
+contract PTRTToken is MintableToken, BurnableToken {
+
+    string public constant name = "Place To Rent";
+    string public constant symbol = "PTRT";
+    uint32 public constant decimals = 14;
+
+    constructor() public {
+        totalSupply = 100000000E14;
+        balances[owner] = totalSupply; // Add all tokens to issuer balance (crowdsale in this case)
+    }
+
+}
+
+contract TokenVesting is Ownable {
+  using SafeMath for uint256;
+  using SafeERC20 for ERC20Basic;
+
+  event Released(uint256 amount);
+  event Revoked();
+
+  // beneficiary of tokens after they are released
+  address public beneficiary;
+
+  uint256 public cliff;
+  uint256 public start;
+  uint256 public duration;
+
+  bool public revocable;
+
+  mapping (address => uint256) public released;
+  mapping (address => bool) public revoked;
+
+  /**
+   * @dev Creates a vesting contract that vests its balance of any ERC20 token
+   * of the balance will hav to the
+   * _beneficiary, gradually in a linear fashion until _start + _duration. By then alle vested.
+   * @param _beneficiary address of the beneficiary to whom vested tokens are transferred
+   * @param _cliff duration in seconds of the cliff in which tokens will begin to vest
+   * @param _duration duration in seconds of the period in which the tokens will vest
+   * @param _revocable whether the vesting is revocable or not
+   */
+  constructor(
+    address _beneficiary,
+    uint256 _start,
+    uint256 _cliff,
+    uint256 _duration,
+    bool _revocable
+  )
+    public
+  {
+    require(_beneficiary != address(0));
+    require(_cliff <= _duration);
+
+    beneficiary = _beneficiary;
+    revocable = _revocable;
+    duration = _duration;
+    cliff = _start.add(_cliff);
+    start = _start;
+  }
+
+  /**
+   * @notice Transfers vested tokens to beneficiary.
+   * @param token ERC20 token which is being vested
+   */
+  function release(ERC20Basic token) public {
+    uint256 unreleased = releasableAmount(token);
+
+    require(unreleased > 0);
+
+    released[token] = released[token].add(unreleased);
+
+    token.safeTransfer(beneficiary, unreleased);
+
+    emit Released(unreleased);
+  }
+
+  /**
+   * @notice Allows the owner to revoke the vesting. Tokens already vested
+   * remain in the contract, the rest are returned to the owner.
+   * @param token ERC20 token which is being vested
+   */
+  function revoke(ERC20Basic token) public onlyOwner {
+    require(revocable);
+    require(!revoked[token]);
+
+    uint256 balance = token.balanceOf(this);
+
+    uint256 unreleased = releasableAmount(token);
+    uint256 refund = balance.sub(unreleased);
+
+    revoked[token] = true;
+
+    token.safeTransfer(owner, refund);
+
+    emit Revoked();
+  }
+
+  /**
+   * @dev Calculates the amount that has already vested but hasn't been released yet.
+   * @param token ERC20 token which is being vested
+   */
+  function releasableAmount(ERC20Basic token) public view returns (uint256) {
+    return vestedAmount(token).sub(released[token]);
+  }
+
+  /**
+   * @dev Calculates the amount that has already vested.
+   * @param token ERC20 token which is being vested
+   */
+  function vestedAmount(ERC20Basic token) public view returns (uint256) {
+    uint256 currentBalance = token.balanceOf(this);
+    uint256 totalBalance = currentBalance.add(released[token]);
+
+    if (block.timestamp < cliff) {
+      return 0;
+    } else if (block.timestamp >= start.add(duration) || revoked[token]) {
+      return totalBalance;
+    } else {
+      return totalBalance.mul(block.timestamp.sub(start)).div(duration);
+    }
+  }
+}
+
+
+
+library SafeERC20 {
+  function safeTransfer(ERC20Basic token, address to, uint256 value) internal {
+    require(token.transfer(to, value));
+  }
+
+  function safeTransferFrom(
+    ERC20 token,
+    address from,
+    address to,
+    uint256 value
+  )
+    internal
+  {
+    require(token.transferFrom(from, to, value));
+  }
+
+  function safeApprove(ERC20 token, address spender, uint256 value) internal {
+    require(token.approve(spender, value));
+  }
+}
+
+
+
+contract PTRTCrowdSale is Ownable {
 
     using SafeMath for uint;
 
-    PTRToken public token = new PTRToken();
+    PTRTToken public token = new PTRTToken();
     uint totalSupply = token.totalSupply();
 
     bool public isRefundAllowed;
@@ -22,14 +412,15 @@ contract PTRCrowdsale is Ownable {
     uint public icoEndTime;
     uint public weiRaised;
     uint public hardCap; // amount of ETH collected, which marks end of crowd sale
+     uint public softCap; 
     uint public tokensDistributed; // amount of bought tokens
     uint public bonus_for_add_stage;
 
     /*         Bonus variables          */
-    uint internal baseBonus1 = 127;
-    uint internal baseBonus2 = 120;
-    uint internal baseBonus3 = 113;
-    uint internal baseBonus4 = 107;
+    uint internal baseBonus1 = 140;
+    uint internal baseBonus2 = 135;
+    uint internal baseBonus3 = 125;
+    uint internal baseBonus4 = 115;
     uint internal baseBonus5 = 100;
     uint public manualBonus;
     /* * * * * * * * * * * * * * * * * * */
@@ -62,21 +453,19 @@ contract PTRCrowdsale is Ownable {
         _;
     }
 
-    function PTRCrowdsale(uint _icoStartTime, uint _icoEndTime, address _wallet) public {
-        require (
-          _icoStartTime > now &&
-          _icoEndTime > _icoStartTime
-        );
+     constructor() public {
+       
 
-        icoStartTime = _icoStartTime;
-        icoEndTime = _icoEndTime;
-        wallet = _wallet;
+        icoStartTime = 1528113840;
+        icoEndTime = 1537922340;
+        wallet = 0x241E97E0b8c62901a140b0FC882944EFBDA24Eba;  //    0xE321B36dE856591f14C0291C82Fb8698dF73753e;  //owner wallet this is done so that no one can hacked it
 
-        rate = 4E14; // wei per 1 token
+        rate = 20E14; // wei per 1 token
 
         hardCap = 100000 ether;
-        icoEndDateIncCount = 0;
-        icoMinPurchase = 100 finney; // 0.1 ETH
+        softCap = 1500 ether;
+        icoEndDateIncCount = 114; // june 4th till sept 2018
+        icoMinPurchase = 200 finney; // 0.2 ETH
         isRefundAllowed = false;
     }
 
@@ -162,7 +551,7 @@ contract PTRCrowdsale is Ownable {
     function withdraw() public onlyOwner {
         uint to_send = weiRaised;
         weiRaised = 0;
-        FundsWithdrawn(msg.sender, to_send);
+        emit FundsWithdrawn(msg.sender, to_send);
         wallet.transfer(to_send);
     }
 
@@ -218,7 +607,7 @@ contract PTRCrowdsale is Ownable {
 
         if (contributors[_beneficiary] == 0) investors_number.push(_beneficiary);
 
-        _tokens = calculateBonus(_tokens, cleanWei);
+       // _tokens = calculateBonus(_tokens, cleanWei);
         checkAndMint(_tokens);
 
         contributors[_beneficiary] = contributors[_beneficiary].add(cleanWei);
@@ -230,15 +619,17 @@ contract PTRCrowdsale is Ownable {
     }
 
     // Calculates bonuses based on current stage
+    /*
     function calculateBonus(uint _baseAmount, uint _wei) internal returns (uint) {
         require(_baseAmount > 0 && _wei > 0);
 
         if (now >= icoStartTime && now < icoEndTime) {
-            return calculateBonusIco(_baseAmount, _wei);
+            return   _baseAmount;//calculateBonusIco(_baseAmount, _wei);
         }
-        else return _baseAmount;
+        else   
+        return _baseAmount;
     }
-
+*/
     function setBonusForNextStage (uint newBonusPercentage) public onlyOwner {
         manualBonus = newBonusPercentage.add(100);
         new_bonus_for_next_period = true;
@@ -254,54 +645,34 @@ contract PTRCrowdsale is Ownable {
 
     // Calculates bonuses, specific for the ICO
     // Contains date and volume based bonuses
+    /* 
     function calculateBonusIco(uint _baseAmount, uint _wei) internal returns(uint) {
-        if(now >= icoStartTime && now < 1513727999) {
-            // 5-19 Mar - 33% bonus
-            return _baseAmount.mul(133).div(100);
-        }
-        else if(now >= 1513728000 && now < 1514332799) {
-            // 20-26 - 27% bonus
-            baseBonus1 = check_for_manual_bonus(baseBonus1);    // returns 127 if no changes detected
+        if(now >= icoStartTime && now < 1530705900) {
+            // 4 jun - 3 july - 40% bonus
             return _baseAmount.mul(baseBonus1).div(100);
         }
-        else if(now >= 1514332800 && now < 1516147199) {
-            // 27 Mar - 16 Apr - 20% bonus
-            baseBonus2 = check_for_manual_bonus(baseBonus2);
+        else if(now >= 1530705901 && now < 1530965100) {
+            // 4-17 jul - 35% bonus
+          //  baseBonus1 = check_for_manual_bonus(baseBonus1);    // returns 127 if no changes detected
             return _baseAmount.mul(baseBonus2).div(100);
         }
-        else if(now >= 1516147200 && now < 1517356799) {
-            // 17-30 Apr - 13% bonus
-            baseBonus3 = check_for_manual_bonus(baseBonus3);
+        else if(now >= 1530965101 && now < 1534248300) {
+            // 18 Jul - 14 Aug - 25% bonus
+          //  baseBonus2 = check_for_manual_bonus(baseBonus2);
             return _baseAmount.mul(baseBonus3).div(100);
         }
-        else if(now >= 1517356800 && now < 1518566399) {
-            //31 Apr - 13 May 7 % bonus
-            baseBonus4 = check_for_manual_bonus(baseBonus4);
+        else if(now >= 1534248301 && now < icoEndTime) {
+            // 15 Aug - 25 sep - 15%
+         //   baseBonus3 = check_for_manual_bonus(baseBonus3);
             return _baseAmount.mul(baseBonus4).div(100);
         }
-        else if(now >= 1518566400 && now < 1519862399) {
-            //14-28 May - no bonus
-            baseBonus5 = check_for_manual_bonus(baseBonus5);
-            return _baseAmount.mul(baseBonus5).div(100);
-        }
-        else if (newBonus_and_newPeriod) {
-            return _baseAmount.mul(bonus_for_add_stage.add(100)).div(100);
-        }
-        else if(now < icoEndTime) {
-            if(_wei >= 1 ether && _wei < 3 ether) {
-                return _baseAmount.mul(101).div(100);
-            }
-            else if(_wei >= 3 ether && _wei < 5 ether) {
-                return _baseAmount.mul(102).div(100);
-            }
-            else if(_wei >= 5 ether) {
-                return _baseAmount.mul(103).div(100);
-            }
-            else {
+        
+        else {
                 return _baseAmount;
             }
-        }
+       
     }
+    */
 
     // Checks if more tokens should be minted based on amount of sold tokens, required additional tokens and total supply.
     // If there are not enough tokens, mint missing tokens
@@ -310,3 +681,4 @@ contract PTRCrowdsale is Ownable {
         if(required > totalSupply) token.mint(this, required.sub(totalSupply));
     }
 }
+
